@@ -1,128 +1,200 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSupabase, Agent, Task } from '@/lib/supabase';
-import { Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { Bot, CheckCircle2, Clock, AlertTriangle, MoreHorizontal } from 'lucide-react';
 
-const STATUS_COLORS = {
-  online: 'bg-green-100 text-green-700 border-green-200',
-  busy: 'bg-yellow-100 text-yellow-700 border-yellow-200',
-  offline: 'bg-gray-100 text-gray-600 border-gray-200',
+interface Agent {
+  id: string;
+  name: string;
+  role: string | null;
+  status: string;
+  last_seen: string | null;
+  current_task: string | null;
+}
+
+interface Task {
+  id: string;
+  title: string;
+  status: string;
+  priority: string;
+  assignee: string | null;
+}
+
+const STATUS_CONFIG: Record<string, { color: string; bg: string; icon: React.ReactNode }> = {
+  online: { 
+    color: 'text-green-700', 
+    bg: 'bg-green-100',
+    icon: <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+  },
+  idle: { 
+    color: 'text-yellow-700', 
+    bg: 'bg-yellow-100',
+    icon: <Clock className="w-3 h-3 text-yellow-600" />
+  },
+  offline: { 
+    color: 'text-gray-500', 
+    bg: 'bg-gray-100',
+    icon: <div className="w-2 h-2 rounded-full bg-gray-400" />
+  },
 };
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksByAgent, setTasksByAgent] = useState<Record<string, Task[]>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     fetchData();
+
+    // Subscribe to realtime changes
+    const agentChannel = supabase
+      .channel('agents-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'mc_agents' },
+        () => fetchData()
+      )
+      .subscribe();
+
+    const taskChannel = supabase
+      .channel('agent-tasks-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'mc_tasks' },
+        () => fetchData()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(agentChannel);
+      supabase.removeChannel(taskChannel);
+    };
   }, []);
 
   async function fetchData() {
-    const supabase = getSupabase();
-    
-    const [agentsRes, tasksRes] = await Promise.all([
-      supabase.from('mc_agents').select('*').order('created_at'),
-      supabase.from('mc_tasks').select('*').not('status', 'in', '("done","cancelled")'),
-    ]);
+    // Fetch agents
+    const { data: agentsData } = await supabase
+      .from('mc_agents')
+      .select('*')
+      .order('name');
 
-    if (agentsRes.data) setAgents(agentsRes.data);
-    if (tasksRes.data) setTasks(tasksRes.data);
+    // Fetch tasks grouped by assignee
+    const { data: tasksData } = await supabase
+      .from('mc_tasks')
+      .select('*')
+      .neq('status', 'done');
+
+    if (agentsData) {
+      setAgents(agentsData);
+    }
+
+    if (tasksData) {
+      const grouped: Record<string, Task[]> = {};
+      tasksData.forEach((task) => {
+        if (task.assignee) {
+          if (!grouped[task.assignee]) grouped[task.assignee] = [];
+          grouped[task.assignee].push(task);
+        }
+      });
+      setTasksByAgent(grouped);
+    }
+
     setLoading(false);
   }
 
-  function getAgentTasks(agentId: string) {
-    return tasks.filter(t => t.assigned_to === agentId);
-  }
-
-  function formatLastSeen(lastHeartbeat: string | null) {
-    if (!lastHeartbeat) return 'Never';
-    const diff = Date.now() - new Date(lastHeartbeat).getTime();
-    const minutes = Math.floor(diff / 60000);
-    if (minutes < 1) return 'Just now';
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    return new Date(lastHeartbeat).toLocaleDateString();
+  function getTimeSince(date: string | null): string {
+    if (!date) return 'Never';
+    const seconds = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    return `${Math.floor(seconds / 86400)}d ago`;
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading agents...</div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="mb-8">
+    <div>
+      <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Agents</h1>
-        <p className="text-gray-500">Team members and their current workload</p>
+        <p className="text-gray-500">ML Holdings agent team status and workload</p>
       </div>
 
-      <div className="grid gap-4">
-        {agents.map(agent => {
-          const agentTasks = getAgentTasks(agent.id);
-          const inProgress = agentTasks.filter(t => t.status === 'in_progress').length;
-          const pending = agentTasks.filter(t => t.status === 'pending').length;
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        {agents.map((agent) => {
+          const status = STATUS_CONFIG[agent.status] || STATUS_CONFIG.offline;
+          const agentTasks = tasksByAgent[agent.name] || [];
+          const urgentCount = agentTasks.filter(t => t.priority === 'urgent' || t.priority === 'high').length;
 
           return (
-            <div key={agent.id} className="bg-white rounded-lg border p-6">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="text-4xl">{agent.config?.emoji || '🤖'}</div>
-                  <div>
-                    <h2 className="text-xl font-semibold text-gray-900">{agent.name}</h2>
-                    <p className="text-sm text-gray-500 capitalize">{agent.config?.role || 'Agent'}</p>
+            <div key={agent.id} className="bg-white rounded-lg border shadow-sm overflow-hidden">
+              {/* Header */}
+              <div className="p-4 border-b">
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center">
+                      <Bot className="w-5 h-5 text-gray-600" />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-gray-900 capitalize">{agent.name}</h3>
+                      <p className="text-sm text-gray-500">{agent.role || 'Agent'}</p>
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium ${status.bg} ${status.color}`}>
+                    {status.icon}
+                    <span className="capitalize">{agent.status}</span>
                   </div>
                 </div>
-                <div className={`px-3 py-1 rounded-full border text-sm font-medium ${STATUS_COLORS[agent.status]}`}>
-                  {agent.status}
+              </div>
+
+              {/* Stats */}
+              <div className="p-4 bg-gray-50">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-500">Active tasks</span>
+                  <span className="font-medium">{agentTasks.length}</span>
+                </div>
+                {urgentCount > 0 && (
+                  <div className="flex items-center justify-between text-sm mt-1">
+                    <span className="text-orange-600 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" />
+                      High priority
+                    </span>
+                    <span className="font-medium text-orange-600">{urgentCount}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm mt-1">
+                  <span className="text-gray-500">Last seen</span>
+                  <span className="text-gray-600">{getTimeSince(agent.last_seen)}</span>
                 </div>
               </div>
 
-              <div className="mt-4 grid grid-cols-3 gap-4 text-center">
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-2xl font-bold text-blue-600">{inProgress}</div>
-                  <div className="text-xs text-gray-500">In Progress</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-2xl font-bold text-gray-600">{pending}</div>
-                  <div className="text-xs text-gray-500">Pending</div>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-2xl font-bold text-green-600">{agentTasks.length}</div>
-                  <div className="text-xs text-gray-500">Total Active</div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-center gap-4 text-sm text-gray-500">
-                <div className="flex items-center gap-1">
-                  <Clock className="h-4 w-4" />
-                  Last seen: {formatLastSeen(agent.last_heartbeat)}
-                </div>
-              </div>
-
+              {/* Current Work */}
               {agentTasks.length > 0 && (
-                <div className="mt-4 border-t pt-4">
-                  <h3 className="text-sm font-medium text-gray-700 mb-2">Current Tasks</h3>
-                  <ul className="space-y-1">
-                    {agentTasks.slice(0, 5).map(task => (
-                      <li key={task.id} className="text-sm flex items-center gap-2">
-                        <span className={`w-2 h-2 rounded-full ${
-                          task.status === 'in_progress' ? 'bg-blue-500' : 
-                          task.status === 'blocked' ? 'bg-red-500' : 'bg-gray-400'
-                        }`} />
-                        <span className="text-gray-700">{task.title}</span>
-                        {task.project && (
-                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{task.project}</span>
+                <div className="p-4 border-t">
+                  <p className="text-xs font-medium text-gray-500 uppercase mb-2">Working on</p>
+                  <ul className="space-y-2">
+                    {agentTasks.slice(0, 3).map((task) => (
+                      <li key={task.id} className="flex items-center gap-2 text-sm">
+                        {task.status === 'in-progress' ? (
+                          <Clock className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                        ) : (
+                          <CheckCircle2 className="w-4 h-4 text-gray-300 flex-shrink-0" />
                         )}
+                        <span className="truncate text-gray-700">{task.title}</span>
                       </li>
                     ))}
-                    {agentTasks.length > 5 && (
-                      <li className="text-xs text-gray-400">+{agentTasks.length - 5} more</li>
+                    {agentTasks.length > 3 && (
+                      <li className="flex items-center gap-2 text-sm text-gray-500">
+                        <MoreHorizontal className="w-4 h-4 flex-shrink-0" />
+                        <span>+{agentTasks.length - 3} more</span>
+                      </li>
                     )}
                   </ul>
                 </div>
