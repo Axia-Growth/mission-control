@@ -125,26 +125,24 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div>
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Mission Control</h1>
-            <p className="text-sm text-gray-500">ML Holdings Agent Coordination</p>
-          </div>
-          <div className="flex items-center gap-4">
-            {agents.map(agent => (
-              <div key={agent.id} className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${AGENT_STATUS_COLORS[agent.status]}`} />
-                <span className="text-sm">{agent.config?.emoji} {agent.name}</span>
-              </div>
-            ))}
-          </div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Agent Tasks</h1>
+          <p className="text-sm text-gray-500">Kanban board for team coordination</p>
         </div>
-      </header>
+        <div className="flex items-center gap-4 bg-white rounded-lg px-4 py-2 shadow-sm">
+          {agents.map(agent => (
+            <div key={agent.id} className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${AGENT_STATUS_COLORS[agent.status]}`} />
+              <span className="text-sm">{agent.config?.emoji} {agent.name}</span>
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <main className="p-6">
+      <div>
         {/* Quick Add Task */}
         <form onSubmit={createTask} className="bg-white rounded-lg shadow-sm border p-4 mb-6">
           <div className="flex gap-3">
@@ -234,7 +232,7 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-      </main>
+      </div>
     </div>
   );
 }
