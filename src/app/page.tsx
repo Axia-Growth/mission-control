@@ -1,16 +1,28 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getSupabase, Agent, Task } from '@/lib/supabase';
+import { supabase } from '@/lib/supabase';
+import { ActivityFeed } from '@/components/ActivityFeed';
+import { CostTracker } from '@/components/CostTracker';
 
-const STATUS_COLORS = {
-  pending: 'bg-gray-100 text-gray-800',
-  in_progress: 'bg-blue-100 text-blue-800',
-  blocked: 'bg-red-100 text-red-800',
-  review: 'bg-purple-100 text-purple-800',
-  done: 'bg-green-100 text-green-800',
-  cancelled: 'bg-gray-200 text-gray-500',
-};
+interface Agent {
+  id: string;
+  name: string;
+  status: string;
+  role?: string;
+  config?: { emoji?: string };
+}
+
+interface Task {
+  id: string;
+  title: string;
+  description?: string;
+  status: 'pending' | 'in_progress' | 'blocked' | 'review' | 'done' | 'cancelled';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  assigned_to?: string;
+  project?: string;
+  due_at?: string;
+}
 
 const PRIORITY_COLORS = {
   low: 'border-l-gray-300',
@@ -19,9 +31,10 @@ const PRIORITY_COLORS = {
   urgent: 'border-l-red-500',
 };
 
-const AGENT_STATUS_COLORS = {
+const AGENT_STATUS_COLORS: Record<string, string> = {
   online: 'bg-green-500',
   busy: 'bg-yellow-500',
+  idle: 'bg-yellow-400',
   offline: 'bg-gray-400',
 };
 
@@ -36,15 +49,14 @@ export default function Dashboard() {
   useEffect(() => {
     fetchData();
     
-    // Set up realtime subscriptions
-    const tasksChannel = getSupabase()
+    const tasksChannel = supabase
       .channel('tasks-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_tasks' }, () => {
         fetchTasks();
       })
       .subscribe();
 
-    const agentsChannel = getSupabase()
+    const agentsChannel = supabase
       .channel('agents-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_agents' }, () => {
         fetchAgents();
@@ -52,8 +64,8 @@ export default function Dashboard() {
       .subscribe();
 
     return () => {
-      getSupabase().removeChannel(tasksChannel);
-      getSupabase().removeChannel(agentsChannel);
+      supabase.removeChannel(tasksChannel);
+      supabase.removeChannel(agentsChannel);
     };
   }, []);
 
@@ -63,7 +75,7 @@ export default function Dashboard() {
   }
 
   async function fetchAgents() {
-    const { data } = await getSupabase()
+    const { data } = await supabase
       .from('mc_agents')
       .select('*')
       .order('created_at');
@@ -71,7 +83,7 @@ export default function Dashboard() {
   }
 
   async function fetchTasks() {
-    const { data } = await getSupabase()
+    const { data } = await supabase
       .from('mc_tasks')
       .select('*')
       .not('status', 'eq', 'done')
@@ -85,7 +97,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
-    await getSupabase().from('mc_tasks').insert({
+    await supabase.from('mc_tasks').insert({
       title: newTaskTitle,
       created_by: 'mike',
       assigned_to: newTaskAssignee || null,
@@ -99,7 +111,7 @@ export default function Dashboard() {
   }
 
   async function updateTaskStatus(taskId: string, status: Task['status']) {
-    await getSupabase()
+    await supabase
       .from('mc_tasks')
       .update({ 
         status,
@@ -111,8 +123,8 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-gray-500">Loading Mission Control...</div>
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -125,24 +137,25 @@ export default function Dashboard() {
   };
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Agent Tasks</h1>
-          <p className="text-sm text-gray-500">Kanban board for team coordination</p>
+    <div className="flex gap-6">
+      {/* Main Content - Kanban */}
+      <div className="flex-1 min-w-0">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+            <p className="text-sm text-gray-500">Agent task coordination</p>
+          </div>
+          <div className="flex items-center gap-4 bg-white rounded-lg px-4 py-2 shadow-sm border">
+            {agents.map(agent => (
+              <div key={agent.id} className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_COLORS.offline}`} />
+                <span className="text-sm capitalize">{agent.config?.emoji} {agent.name}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <div className="flex items-center gap-4 bg-white rounded-lg px-4 py-2 shadow-sm">
-          {agents.map(agent => (
-            <div key={agent.id} className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${AGENT_STATUS_COLORS[agent.status]}`} />
-              <span className="text-sm">{agent.config?.emoji} {agent.name}</span>
-            </div>
-          ))}
-        </div>
-      </div>
 
-      <div>
         {/* Quick Add Task */}
         <form onSubmit={createTask} className="bg-white rounded-lg shadow-sm border p-4 mb-6">
           <div className="flex gap-3">
@@ -159,8 +172,8 @@ export default function Dashboard() {
               className="px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Unassigned</option>
-              {agents.filter(a => a.id !== 'mike').map(agent => (
-                <option key={agent.id} value={agent.id}>{agent.name}</option>
+              {agents.filter(a => a.name !== 'mike').map(agent => (
+                <option key={agent.id} value={agent.name}>{agent.name}</option>
               ))}
             </select>
             <select
@@ -187,14 +200,14 @@ export default function Dashboard() {
         {/* Kanban Board */}
         <div className="grid grid-cols-4 gap-4">
           {(['pending', 'in_progress', 'blocked', 'review'] as const).map(status => (
-            <div key={status} className="bg-gray-100 rounded-lg p-4">
-              <h3 className="font-semibold text-gray-700 mb-3 flex items-center justify-between">
+            <div key={status} className="bg-gray-100 rounded-lg p-3">
+              <h3 className="font-semibold text-gray-700 mb-3 flex items-center justify-between text-sm">
                 <span className="capitalize">{status.replace('_', ' ')}</span>
-                <span className="text-sm bg-white px-2 py-0.5 rounded-full">
+                <span className="bg-white px-2 py-0.5 rounded-full text-xs">
                   {tasksByStatus[status].length}
                 </span>
               </h3>
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {tasksByStatus[status].map(task => (
                   <div
                     key={task.id}
@@ -202,7 +215,7 @@ export default function Dashboard() {
                   >
                     <h4 className="font-medium text-gray-900 text-sm">{task.title}</h4>
                     <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         {task.project && (
                           <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
                             {task.project}
@@ -210,14 +223,14 @@ export default function Dashboard() {
                         )}
                         {task.assigned_to && (
                           <span className="text-xs text-gray-500">
-                            → {agents.find(a => a.id === task.assigned_to)?.name || task.assigned_to}
+                            → {task.assigned_to}
                           </span>
                         )}
                       </div>
                       <select
                         value={task.status}
                         onChange={(e) => updateTaskStatus(task.id, e.target.value as Task['status'])}
-                        className="text-xs border rounded px-1 py-0.5"
+                        className="text-xs border rounded px-1 py-0.5 bg-white"
                       >
                         <option value="pending">Pending</option>
                         <option value="in_progress">In Progress</option>
@@ -228,10 +241,21 @@ export default function Dashboard() {
                     </div>
                   </div>
                 ))}
+                {tasksByStatus[status].length === 0 && (
+                  <div className="text-xs text-gray-400 text-center py-4">
+                    No tasks
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
+      </div>
+
+      {/* Right Sidebar - Activity + Costs */}
+      <div className="w-80 flex-shrink-0 space-y-4">
+        <CostTracker />
+        <ActivityFeed limit={15} />
       </div>
     </div>
   );

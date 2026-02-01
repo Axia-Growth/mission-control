@@ -16,8 +16,14 @@ export function getSupabase(): SupabaseClient {
   return supabaseInstance;
 }
 
-// For backwards compatibility
-export const supabase = typeof window !== 'undefined' ? getSupabase() : null!;
+// Singleton instance for client-side use
+export const supabase = (() => {
+  if (typeof window === 'undefined') {
+    // SSR: return a lazy proxy that will be replaced on client
+    return null as unknown as SupabaseClient;
+  }
+  return getSupabase();
+})();
 
 // Types
 export interface Agent {
