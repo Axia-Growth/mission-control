@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { supabase, Agent, Task } from '@/lib/supabase';
+import { getSupabase, Agent, Task } from '@/lib/supabase';
 
 const STATUS_COLORS = {
   pending: 'bg-gray-100 text-gray-800',
@@ -37,14 +37,14 @@ export default function Dashboard() {
     fetchData();
     
     // Set up realtime subscriptions
-    const tasksChannel = supabase
+    const tasksChannel = getSupabase()
       .channel('tasks-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_tasks' }, () => {
         fetchTasks();
       })
       .subscribe();
 
-    const agentsChannel = supabase
+    const agentsChannel = getSupabase()
       .channel('agents-changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_agents' }, () => {
         fetchAgents();
@@ -52,8 +52,8 @@ export default function Dashboard() {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(agentsChannel);
+      getSupabase().removeChannel(tasksChannel);
+      getSupabase().removeChannel(agentsChannel);
     };
   }, []);
 
@@ -63,7 +63,7 @@ export default function Dashboard() {
   }
 
   async function fetchAgents() {
-    const { data } = await supabase
+    const { data } = await getSupabase()
       .from('mc_agents')
       .select('*')
       .order('created_at');
@@ -71,7 +71,7 @@ export default function Dashboard() {
   }
 
   async function fetchTasks() {
-    const { data } = await supabase
+    const { data } = await getSupabase()
       .from('mc_tasks')
       .select('*')
       .not('status', 'eq', 'done')
@@ -85,7 +85,7 @@ export default function Dashboard() {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
-    await supabase.from('mc_tasks').insert({
+    await getSupabase().from('mc_tasks').insert({
       title: newTaskTitle,
       created_by: 'mike',
       assigned_to: newTaskAssignee || null,
@@ -99,7 +99,7 @@ export default function Dashboard() {
   }
 
   async function updateTaskStatus(taskId: string, status: Task['status']) {
-    await supabase
+    await getSupabase()
       .from('mc_tasks')
       .update({ 
         status,
