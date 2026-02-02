@@ -64,6 +64,7 @@ export default function CommandCenter() {
 
   const activeAgents = agents.filter(a => a.status === 'online' || a.status === 'busy').length;
   const activeTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
+  const pendingTasks = tasks.filter(t => t.status === 'pending').length;
 
   async function handleTaskStatusChange(taskId: string, status: Task['status']) {
     await updateTaskStatus({ 
@@ -79,7 +80,8 @@ export default function CommandCenter() {
       <Header
         projectName="ML Holdings"
         agentsActive={activeAgents}
-        tasksInQueue={activeTasks}
+        activeTasks={activeTasks}
+        pendingTasks={pendingTasks}
         isOnline={isOnline}
       />
 
