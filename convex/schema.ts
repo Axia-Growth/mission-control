@@ -53,11 +53,18 @@ export default defineSchema({
     .index("by_priority", ["priority"])
     .index("by_project", ["project"]),
 
-  // Task comments
+  // Task comments (supports markdown + file attachments)
   taskComments: defineTable({
     taskId: v.id("tasks"),
     author: v.string(),
     content: v.string(),
+    contentType: v.optional(v.union(v.literal("text"), v.literal("markdown"))),
+    attachments: v.optional(v.array(v.object({
+      storageId: v.id("_storage"),
+      filename: v.string(),
+      mimeType: v.string(),
+      size: v.number(),
+    }))),
   }).index("by_task", ["taskId"]),
 
   // Activity logs
