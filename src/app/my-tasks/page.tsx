@@ -1,109 +1,65 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useState } from 'react';
+import { useQuery, useMutation, api } from '@/lib/convex';
+import { Task } from '@/lib/types';
 import { Plus, CheckCircle2, Circle, Clock, AlertCircle } from 'lucide-react';
-
-interface Task {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  priority: string;
-  assignee: string | null;
-  due_date: string | null;
-  created_at: string;
-  mentions: string[];
-}
 
 const PRIORITY_COLORS: Record<string, string> = {
   urgent: 'text-red-500',
   high: 'text-orange-500',
-  medium: 'text-yellow-500',
+  normal: 'text-yellow-500',
   low: 'text-gray-400',
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   done: <CheckCircle2 className="h-5 w-5 text-green-500" />,
-  'in-progress': <Clock className="h-5 w-5 text-blue-500" />,
+  in_progress: <Clock className="h-5 w-5 text-blue-500" />,
   blocked: <AlertCircle className="h-5 w-5 text-red-500" />,
-  todo: <Circle className="h-5 w-5 text-gray-400" />,
+  pending: <Circle className="h-5 w-5 text-gray-400" />,
 };
 
 export default function MyTasksPage() {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const allTasks = useQuery(api.tasks.list, { includeCancelled: false }) as Task[] | undefined;
+  const createTask = useMutation(api.tasks.create);
+  const updateTaskStatus = useMutation(api.tasks.updateStatus);
+  
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [showNewTask, setShowNewTask] = useState(false);
 
-  useEffect(() => {
-    fetchMyTasks();
-
-    // Subscribe to realtime changes
-    const channel = supabase
-      .channel('my-tasks-changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'mc_tasks' },
-        () => fetchMyTasks()
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  async function fetchMyTasks() {
-    const { data, error } = await supabase
-      .from('mc_tasks')
-      .select('*')
-      .or('assignee.eq.mike,mentions.cs.{mike}')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error('Error fetching tasks:', error);
-    } else {
-      setTasks(data || []);
-    }
-    setLoading(false);
-  }
+  // Filter tasks for Mike (assigned or mentioned)
+  const tasks = (allTasks || []).filter(t => 
+    t.assignedTo?.toLowerCase() === 'mike' || 
+    t.mentions?.includes('mike')
+  );
 
   async function addTask() {
     if (!newTaskTitle.trim()) return;
 
-    const { error } = await supabase.from('mc_tasks').insert({
+    await createTask({
       title: newTaskTitle,
-      assignee: 'mike',
-      status: 'todo',
-      priority: 'medium',
-      mentions: [],
+      createdBy: 'mike',
+      assignedTo: 'mike',
+      priority: 'normal',
     });
 
-    if (error) {
-      console.error('Error adding task:', error);
-    } else {
-      setNewTaskTitle('');
-      setShowNewTask(false);
-    }
+    setNewTaskTitle('');
+    setShowNewTask(false);
   }
 
   async function toggleTaskStatus(task: Task) {
-    const newStatus = task.status === 'done' ? 'todo' : 'done';
-    const { error } = await supabase
-      .from('mc_tasks')
-      .update({ status: newStatus })
-      .eq('id', task.id);
-
-    if (error) {
-      console.error('Error updating task:', error);
-    }
+    const newStatus = task.status === 'done' ? 'pending' : 'done';
+    await updateTaskStatus({
+      id: task._id,
+      status: newStatus,
+      changedBy: 'mike',
+    });
   }
 
   const activeTasks = tasks.filter(t => t.status !== 'done');
   const completedTasks = tasks.filter(t => t.status === 'done');
 
-  if (loading) {
+  if (allTasks === undefined) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
@@ -168,12 +124,12 @@ export default function MyTasksPage() {
         ) : (
           <ul className="divide-y">
             {activeTasks.map((task) => (
-              <li key={task.id} className="flex items-start gap-3 p-4 hover:bg-gray-50">
+              <li key={task._id} className="flex items-start gap-3 p-4 hover:bg-gray-50">
                 <button
                   onClick={() => toggleTaskStatus(task)}
                   className="mt-0.5 flex-shrink-0"
                 >
-                  {STATUS_ICONS[task.status] || STATUS_ICONS.todo}
+                  {STATUS_ICONS[task.status] || STATUS_ICONS.pending}
                 </button>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900">{task.title}</p>
@@ -186,14 +142,14 @@ export default function MyTasksPage() {
                     <span className={`font-medium ${PRIORITY_COLORS[task.priority]}`}>
                       {task.priority.toUpperCase()}
                     </span>
-                    {task.due_date && (
+                    {task.dueAt && (
                       <span className="text-gray-500">
-                        Due: {new Date(task.due_date).toLocaleDateString()}
+                        Due: {new Date(task.dueAt).toLocaleDateString()}
                       </span>
                     )}
-                    {task.assignee && task.assignee !== 'mike' && (
+                    {task.assignedTo && task.assignedTo !== 'mike' && (
                       <span className="text-gray-500">
-                        Assigned to: {task.assignee}
+                        Assigned to: {task.assignedTo}
                       </span>
                     )}
                   </div>
@@ -212,7 +168,7 @@ export default function MyTasksPage() {
           </div>
           <ul className="divide-y">
             {completedTasks.slice(0, 5).map((task) => (
-              <li key={task.id} className="flex items-center gap-3 p-4 hover:bg-gray-50">
+              <li key={task._id} className="flex items-center gap-3 p-4 hover:bg-gray-50">
                 <button
                   onClick={() => toggleTaskStatus(task)}
                   className="flex-shrink-0"

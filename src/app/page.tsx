@@ -1,261 +1,298 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
-import { ActivityFeed } from '@/components/ActivityFeed';
-import { CostTracker } from '@/components/CostTracker';
+import { useState } from 'react';
+import { useQuery, useMutation, api } from '@/lib/convex';
+import { Id } from '../../convex/_generated/dataModel';
+import { Header } from '@/components/Header';
+import { AgentsPanel } from '@/components/AgentsPanel';
+import { MissionQueue } from '@/components/MissionQueue';
+import { LiveFeed } from '@/components/LiveFeed';
 
-interface Agent {
-  id: string;
+// Map Convex types to component types
+type Agent = {
+  _id: Id<"agents">;
   name: string;
-  status: string;
-  role?: string;
-  config?: { emoji?: string };
-}
+  status: 'online' | 'busy' | 'offline';
+  currentTaskId?: Id<"tasks">;
+  lastHeartbeat?: number;
+  config: { role: string; emoji: string };
+  healthStatus?: 'healthy' | 'degraded' | 'error';
+  tokensToday?: number;
+  costToday?: number;
+  discordUserId?: string;
+  _creationTime: number;
+};
 
-interface Task {
-  id: string;
+type Task = {
+  _id: Id<"tasks">;
   title: string;
   description?: string;
   status: 'pending' | 'in_progress' | 'blocked' | 'review' | 'done' | 'cancelled';
   priority: 'low' | 'normal' | 'high' | 'urgent';
-  assigned_to?: string;
+  createdBy: string;
+  assignedTo?: string;
   project?: string;
-  due_at?: string;
-}
-
-const PRIORITY_COLORS = {
-  low: 'border-l-gray-300',
-  normal: 'border-l-blue-400',
-  high: 'border-l-orange-400',
-  urgent: 'border-l-red-500',
+  tags?: string[];
+  parentTaskId?: Id<"tasks">;
+  mentions?: string[];
+  dueAt?: number;
+  startedAt?: number;
+  completedAt?: number;
+  _creationTime: number;
 };
 
-const AGENT_STATUS_COLORS: Record<string, string> = {
-  online: 'bg-green-500',
-  busy: 'bg-yellow-500',
-  idle: 'bg-yellow-400',
-  offline: 'bg-gray-400',
+type TaskComment = {
+  _id: Id<"taskComments">;
+  taskId: Id<"tasks">;
+  author: string;
+  content: string;
+  _creationTime: number;
 };
 
-export default function Dashboard() {
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskAssignee, setNewTaskAssignee] = useState('');
-  const [newTaskProject, setNewTaskProject] = useState('');
+export default function CommandCenter() {
+  const agents = useQuery(api.agents.list) as Agent[] | undefined;
+  const tasks = useQuery(api.tasks.list, { includeCancelled: false }) as Task[] | undefined;
+  const updateTaskStatus = useMutation(api.tasks.updateStatus);
+  
+  const [isOnline, setIsOnline] = useState(true);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
-  useEffect(() => {
-    fetchData();
-    
-    const tasksChannel = supabase
-      .channel('tasks-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_tasks' }, () => {
-        fetchTasks();
-      })
-      .subscribe();
-
-    const agentsChannel = supabase
-      .channel('agents-changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'mc_agents' }, () => {
-        fetchAgents();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(tasksChannel);
-      supabase.removeChannel(agentsChannel);
-    };
-  }, []);
-
-  async function fetchData() {
-    await Promise.all([fetchAgents(), fetchTasks()]);
-    setLoading(false);
-  }
-
-  async function fetchAgents() {
-    const { data } = await supabase
-      .from('mc_agents')
-      .select('*')
-      .order('created_at');
-    if (data) setAgents(data);
-  }
-
-  async function fetchTasks() {
-    const { data } = await supabase
-      .from('mc_tasks')
-      .select('*')
-      .not('status', 'eq', 'done')
-      .not('status', 'eq', 'cancelled')
-      .order('priority', { ascending: false })
-      .order('created_at', { ascending: false });
-    if (data) setTasks(data);
-  }
-
-  async function createTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    await supabase.from('mc_tasks').insert({
-      title: newTaskTitle,
-      created_by: 'mike',
-      assigned_to: newTaskAssignee || null,
-      project: newTaskProject || null,
-      priority: 'normal',
-    });
-
-    setNewTaskTitle('');
-    setNewTaskAssignee('');
-    setNewTaskProject('');
-  }
-
-  async function updateTaskStatus(taskId: string, status: Task['status']) {
-    await supabase
-      .from('mc_tasks')
-      .update({ 
-        status,
-        started_at: status === 'in_progress' ? new Date().toISOString() : undefined,
-        completed_at: status === 'done' ? new Date().toISOString() : undefined,
-      })
-      .eq('id', taskId);
-  }
-
-  if (loading) {
+  // Loading state
+  if (agents === undefined || tasks === undefined) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+      <div className="h-screen flex items-center justify-center bg-stone-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600 mx-auto mb-4" />
+          <p className="text-stone-500 text-sm">Loading Mission Control...</p>
+        </div>
       </div>
     );
   }
 
-  const tasksByStatus = {
-    pending: tasks.filter(t => t.status === 'pending'),
-    in_progress: tasks.filter(t => t.status === 'in_progress'),
-    blocked: tasks.filter(t => t.status === 'blocked'),
-    review: tasks.filter(t => t.status === 'review'),
-  };
+  const activeAgents = agents.filter(a => a.status === 'online' || a.status === 'busy').length;
+  const activeTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
+
+  async function handleTaskStatusChange(taskId: string, status: Task['status']) {
+    await updateTaskStatus({ 
+      id: taskId as Id<"tasks">, 
+      status,
+      changedBy: 'mike',
+    });
+  }
 
   return (
-    <div className="flex gap-6">
-      {/* Main Content - Kanban */}
-      <div className="flex-1 min-w-0">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-            <p className="text-sm text-gray-500">Agent task coordination</p>
-          </div>
-          <div className="flex items-center gap-4 bg-white rounded-lg px-4 py-2 shadow-sm border">
-            {agents.map(agent => (
-              <div key={agent.id} className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${AGENT_STATUS_COLORS[agent.status] || AGENT_STATUS_COLORS.offline}`} />
-                <span className="text-sm capitalize">{agent.config?.emoji} {agent.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+    <div className="h-screen flex flex-col bg-stone-50 overflow-hidden">
+      {/* Header */}
+      <Header
+        projectName="ML Holdings"
+        agentsActive={activeAgents}
+        tasksInQueue={activeTasks}
+        isOnline={isOnline}
+      />
 
-        {/* Quick Add Task */}
-        <form onSubmit={createTask} className="bg-white rounded-lg shadow-sm border p-4 mb-6">
-          <div className="flex gap-3">
-            <input
-              type="text"
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              placeholder="New task..."
-              className="flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <select
-              value={newTaskAssignee}
-              onChange={(e) => setNewTaskAssignee(e.target.value)}
-              className="px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">Unassigned</option>
-              {agents.filter(a => a.name !== 'mike').map(agent => (
-                <option key={agent.id} value={agent.name}>{agent.name}</option>
-              ))}
-            </select>
-            <select
-              value={newTaskProject}
-              onChange={(e) => setNewTaskProject(e.target.value)}
-              className="px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">No Project</option>
-              <option value="axia-os">Axia OS</option>
-              <option value="just-ccd">Just CC&apos;d</option>
-              <option value="weight-supply">Weight Supply</option>
-              <option value="mission-control">Mission Control</option>
-              <option value="personal-brand">Personal Brand</option>
-            </select>
-            <button
-              type="submit"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              Add Task
-            </button>
-          </div>
-        </form>
+      {/* Main Content */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left: Agents Panel */}
+        <AgentsPanel agents={agents} />
 
-        {/* Kanban Board */}
-        <div className="grid grid-cols-4 gap-4">
-          {(['pending', 'in_progress', 'blocked', 'review'] as const).map(status => (
-            <div key={status} className="bg-gray-100 rounded-lg p-3">
-              <h3 className="font-semibold text-gray-700 mb-3 flex items-center justify-between text-sm">
-                <span className="capitalize">{status.replace('_', ' ')}</span>
-                <span className="bg-white px-2 py-0.5 rounded-full text-xs">
-                  {tasksByStatus[status].length}
-                </span>
-              </h3>
-              <div className="space-y-2">
-                {tasksByStatus[status].map(task => (
-                  <div
-                    key={task.id}
-                    className={`bg-white rounded-lg shadow-sm border-l-4 p-3 ${PRIORITY_COLORS[task.priority]}`}
-                  >
-                    <h4 className="font-medium text-gray-900 text-sm">{task.title}</h4>
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {task.project && (
-                          <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">
-                            {task.project}
-                          </span>
-                        )}
-                        {task.assigned_to && (
-                          <span className="text-xs text-gray-500">
-                            → {task.assigned_to}
-                          </span>
-                        )}
-                      </div>
-                      <select
-                        value={task.status}
-                        onChange={(e) => updateTaskStatus(task.id, e.target.value as Task['status'])}
-                        className="text-xs border rounded px-1 py-0.5 bg-white"
-                      >
-                        <option value="pending">Pending</option>
-                        <option value="in_progress">In Progress</option>
-                        <option value="blocked">Blocked</option>
-                        <option value="review">Review</option>
-                        <option value="done">Done</option>
-                      </select>
-                    </div>
-                  </div>
-                ))}
-                {tasksByStatus[status].length === 0 && (
-                  <div className="text-xs text-gray-400 text-center py-4">
-                    No tasks
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Center: Mission Queue (Kanban) */}
+        <MissionQueue
+          tasks={tasks}
+          agents={agents}
+          onTaskStatusChange={handleTaskStatusChange}
+          onTaskClick={setSelectedTask}
+        />
+
+        {/* Right: Live Feed */}
+        <LiveFeed agents={agents} />
       </div>
 
-      {/* Right Sidebar - Activity + Costs */}
-      <div className="w-80 flex-shrink-0 space-y-4">
-        <CostTracker />
-        <ActivityFeed limit={15} />
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          agents={agents}
+          onClose={() => setSelectedTask(null)}
+          onStatusChange={handleTaskStatusChange}
+        />
+      )}
+    </div>
+  );
+}
+
+interface TaskDetailModalProps {
+  task: Task;
+  agents: Agent[];
+  onClose: () => void;
+  onStatusChange: (taskId: string, status: Task['status']) => void;
+}
+
+function TaskDetailModal({ task, agents, onClose, onStatusChange }: TaskDetailModalProps) {
+  const comments = useQuery(api.comments.byTask, { taskId: task._id }) as TaskComment[] | undefined;
+  const addComment = useMutation(api.comments.add);
+  const [newComment, setNewComment] = useState('');
+
+  async function handleAddComment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    await addComment({
+      taskId: task._id,
+      author: 'mike',
+      content: newComment,
+    });
+
+    setNewComment('');
+  }
+
+  const AGENT_ICONS: Record<string, string> = {
+    mike: '👤',
+    nash: '♟️',
+    dev: '⚡',
+    otto: '📋',
+  };
+
+  const assignedAgent = agents.find(a => a.name.toLowerCase() === task.assignedTo?.toLowerCase());
+  const assignedIcon = assignedAgent 
+    ? (AGENT_ICONS[assignedAgent.name.toLowerCase()] || assignedAgent.config?.emoji || '🤖')
+    : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
+      <div 
+        className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-stone-200 flex items-start justify-between">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-stone-900">{task.title}</h2>
+            <div className="flex items-center gap-3 mt-2">
+              {task.project && (
+                <span className="px-2 py-0.5 text-xs text-amber-700 bg-amber-50 rounded">
+                  {task.project}
+                </span>
+              )}
+              <span className={`px-2 py-0.5 text-xs rounded ${
+                task.priority === 'urgent' ? 'bg-red-100 text-red-700' :
+                task.priority === 'high' ? 'bg-orange-100 text-orange-700' :
+                task.priority === 'normal' ? 'bg-blue-100 text-blue-700' :
+                'bg-stone-100 text-stone-600'
+              }`}>
+                {task.priority}
+              </span>
+              <select
+                value={task.status}
+                onChange={(e) => onStatusChange(task._id, e.target.value as Task['status'])}
+                className="text-xs border border-stone-200 rounded px-2 py-1"
+              >
+                <option value="pending">Pending</option>
+                <option value="in_progress">In Progress</option>
+                <option value="review">Review</option>
+                <option value="done">Done</option>
+                <option value="blocked">Blocked</option>
+              </select>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {/* Description */}
+          {task.description && (
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase mb-2">Description</h3>
+              <p className="text-sm text-stone-700 whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
+          {/* Assigned */}
+          {assignedAgent && (
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase mb-2">Assigned To</h3>
+              <div className="flex items-center gap-2">
+                <span className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center">
+                  {assignedIcon}
+                </span>
+                <span className="text-sm font-medium text-stone-900">{assignedAgent.name}</span>
+                <span className="text-xs text-stone-500">{assignedAgent.config?.role}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Tags */}
+          {task.tags && task.tags.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-stone-500 uppercase mb-2">Tags</h3>
+              <div className="flex flex-wrap gap-2">
+                {task.tags.map(tag => (
+                  <span key={tag} className="px-2 py-1 text-xs text-stone-600 bg-stone-100 rounded">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Comments */}
+          <div>
+            <h3 className="text-xs font-semibold text-stone-500 uppercase mb-3">
+              Comments ({comments?.length || 0})
+            </h3>
+            
+            {comments === undefined ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600 mx-auto" />
+              </div>
+            ) : comments.length === 0 ? (
+              <p className="text-sm text-stone-400 py-4">No comments yet</p>
+            ) : (
+              <div className="space-y-4 mb-4">
+                {comments.map(comment => {
+                  const icon = AGENT_ICONS[comment.author.toLowerCase()] || '💬';
+                  return (
+                    <div key={comment._id} className="flex gap-3">
+                      <span className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-sm flex-shrink-0">
+                        {icon}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-stone-900">{comment.author}</span>
+                          <span className="text-xs text-stone-400">
+                            {new Date(comment._creationTime).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-stone-600 mt-1">{comment.content}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add Comment */}
+            <form onSubmit={handleAddComment} className="flex gap-2">
+              <input
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                Send
+              </button>
+            </form>
+          </div>
+        </div>
       </div>
     </div>
   );

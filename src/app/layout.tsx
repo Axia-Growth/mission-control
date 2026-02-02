@@ -1,29 +1,27 @@
-import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-import { Sidebar } from "@/components/Sidebar";
+import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
+import './globals.css';
+import { ConvexClientProvider } from '@/providers/ConvexClientProvider';
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ 
+  subsets: ['latin'],
+  variable: '--font-inter',
+});
 
 export const metadata: Metadata = {
-  title: "Mission Control | ML Holdings",
-  description: "Multi-agent task coordination dashboard",
+  title: 'Mission Control | ML Holdings',
+  description: 'AI Agent Command Center',
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <main className="flex-1 bg-gray-50 p-6">
-            {children}
-          </main>
-        </div>
+    <html lang="en" className={inter.variable}>
+      <body className="font-sans antialiased">
+        <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>
   );

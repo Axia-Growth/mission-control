@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
+import { useQuery, api } from '@/lib/convex';
+import { ActivityLog } from '@/lib/types';
 import { 
   CheckCircle2, 
   PlayCircle, 
@@ -11,15 +11,6 @@ import {
   Zap,
   RefreshCw
 } from 'lucide-react';
-
-interface ActivityLog {
-  id: string;
-  timestamp: string;
-  agent: string;
-  action_type: string;
-  details: Record<string, unknown>;
-  task_id: string | null;
-}
 
 const ACTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; label: string }> = {
   task_completed: { 
@@ -59,8 +50,8 @@ const ACTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; labe
   },
 };
 
-function getTimeAgo(timestamp: string): string {
-  const seconds = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+function getTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
   if (seconds < 60) return 'just now';
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
@@ -68,45 +59,9 @@ function getTimeAgo(timestamp: string): string {
 }
 
 export function ActivityFeed({ limit = 20 }: { limit?: number }) {
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
-  const [loading, setLoading] = useState(true);
+  const activities = useQuery(api.activity.recent, { limit }) as ActivityLog[] | undefined;
 
-  useEffect(() => {
-    fetchActivities();
-
-    // Subscribe to realtime changes
-    const channel = supabase
-      .channel('activity-feed')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'mc_activity_logs' },
-        (payload) => {
-          setActivities((prev) => [payload.new as ActivityLog, ...prev].slice(0, limit));
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [limit]);
-
-  async function fetchActivities() {
-    const { data, error } = await supabase
-      .from('mc_activity_logs')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      console.error('Error fetching activities:', error);
-    } else {
-      setActivities(data || []);
-    }
-    setLoading(false);
-  }
-
-  if (loading) {
+  if (activities === undefined) {
     return (
       <div className="bg-white rounded-lg border shadow-sm p-6">
         <div className="animate-pulse space-y-3">
@@ -139,11 +94,11 @@ export function ActivityFeed({ limit = 20 }: { limit?: number }) {
       </div>
       <div className="divide-y max-h-[400px] overflow-y-auto">
         {activities.map((activity) => {
-          const config = ACTION_CONFIG[activity.action_type] || ACTION_CONFIG.task_updated;
-          const details = activity.details as { title?: string; old_status?: string; new_status?: string };
+          const config = ACTION_CONFIG[activity.actionType] || ACTION_CONFIG.task_updated;
+          const details = activity.details as { title?: string; old_status?: string; new_status?: string } | undefined;
           
           return (
-            <div key={activity.id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50">
+            <div key={activity._id} className="px-4 py-3 flex items-start gap-3 hover:bg-gray-50">
               <div className={`p-2 rounded-full ${config.color}`}>
                 {config.icon}
               </div>
@@ -161,7 +116,7 @@ export function ActivityFeed({ limit = 20 }: { limit?: number }) {
                   )}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  {getTimeAgo(activity.timestamp)}
+                  {getTimeAgo(activity._creationTime)}
                 </p>
               </div>
             </div>
