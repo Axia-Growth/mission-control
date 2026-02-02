@@ -178,6 +178,49 @@ export const assign = mutation({
   },
 });
 
+// Add a comment to a task (convenience alias for comments:add)
+// This allows calling tasks:addComment for simpler API usage
+export const addComment = mutation({
+  args: {
+    taskId: v.id("tasks"),
+    author: v.string(),
+    content: v.string(),
+    contentType: v.optional(v.union(v.literal("text"), v.literal("markdown"))),
+    attachments: v.optional(v.array(v.object({
+      storageId: v.id("_storage"),
+      filename: v.string(),
+      mimeType: v.string(),
+      size: v.number(),
+    }))),
+  },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) throw new Error("Task not found");
+
+    const commentId = await ctx.db.insert("taskComments", {
+      taskId: args.taskId,
+      author: args.author,
+      content: args.content,
+      contentType: args.contentType || "text",
+      attachments: args.attachments,
+    });
+
+    // Log activity
+    await ctx.db.insert("activityLogs", {
+      agent: args.author,
+      actionType: args.attachments?.length ? "comment_with_attachment" : "comment_added",
+      taskId: args.taskId,
+      details: { 
+        title: task.title,
+        hasAttachments: !!args.attachments?.length,
+        attachmentCount: args.attachments?.length || 0,
+      },
+    });
+
+    return commentId;
+  },
+});
+
 // Update task (general)
 export const update = mutation({
   args: {
