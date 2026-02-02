@@ -5,11 +5,12 @@ import { useState, useEffect } from 'react';
 interface HeaderProps {
   projectName: string;
   agentsActive: number;
-  tasksInQueue: number;
+  activeTasks: number;
+  pendingTasks: number;
   isOnline: boolean;
 }
 
-export function Header({ projectName, agentsActive, tasksInQueue, isOnline }: HeaderProps) {
+export function Header({ projectName, agentsActive, activeTasks, pendingTasks, isOnline }: HeaderProps) {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -54,8 +55,12 @@ export function Header({ projectName, agentsActive, tasksInQueue, isOnline }: He
           <div className="text-[10px] tracking-widest text-stone-400 uppercase">Agents Active</div>
         </div>
         <div className="text-center">
-          <div className="text-3xl font-light text-stone-900">{tasksInQueue}</div>
-          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Tasks in Queue</div>
+          <div className="text-3xl font-light text-stone-900">{pendingTasks}</div>
+          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Pending</div>
+        </div>
+        <div className="text-center">
+          <div className="text-3xl font-light text-stone-900">{activeTasks}</div>
+          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Active Tasks</div>
         </div>
       </div>
 
