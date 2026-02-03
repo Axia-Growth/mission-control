@@ -1,5 +1,8 @@
 'use client';
 
+import { useState } from 'react';
+import { RefreshCw } from 'lucide-react';
+
 interface OperatorStatus {
   ampFreeRemaining: number;
   ampFreeTotal: number;
@@ -18,12 +21,25 @@ interface NashStatusPanelProps {
   operatorStatus?: OperatorStatus | null;
 }
 
+function formatLastUpdated(timestamp: number): string {
+  const now = Date.now();
+  const diff = now - timestamp;
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return new Date(timestamp).toLocaleDateString();
+}
+
 export function NashStatusPanel({ 
   status, 
   currentTask,
   tasksCompletedToday = 0,
   operatorStatus 
 }: NashStatusPanelProps) {
+  const [syncRequested, setSyncRequested] = useState(false);
   const statusConfig = {
     online: { dot: 'bg-emerald-500', text: 'text-emerald-600', label: 'ONLINE' },
     busy: { dot: 'bg-amber-500', text: 'text-amber-600', label: 'WORKING' },
@@ -63,9 +79,24 @@ export function NashStatusPanel({
 
       {/* AMP Credits */}
       <div className="px-4 py-3 border-b border-stone-100">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-lg">⚡</span>
-          <span className="text-sm font-medium text-stone-700">AMP Code</span>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">⚡</span>
+            <span className="text-sm font-medium text-stone-700">AMP Code</span>
+          </div>
+          <button
+            onClick={() => {
+              setSyncRequested(true);
+              // TODO: Wire up to operatorStatus.update mutation
+              setTimeout(() => setSyncRequested(false), 2000);
+            }}
+            className="p-1 rounded hover:bg-stone-100 transition-colors group relative"
+            title={operatorStatus ? `Last updated: ${formatLastUpdated(operatorStatus.lastUpdated)}` : 'Sync AMP status'}
+          >
+            <RefreshCw 
+              className={`w-3.5 h-3.5 text-stone-400 group-hover:text-stone-600 ${syncRequested ? 'animate-spin' : ''}`} 
+            />
+          </button>
         </div>
         
         {operatorStatus ? (
