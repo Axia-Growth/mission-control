@@ -99,4 +99,16 @@ export default defineSchema({
     oldValue: v.optional(v.string()),
     newValue: v.optional(v.string()),
   }).index("by_task", ["taskId"]),
+
+  // Operator status (solo operator - Nash)
+  operatorStatus: defineTable({
+    ampFreeRemaining: v.number(),
+    ampFreeTotal: v.number(),
+    ampWorkspaceBalance: v.number(),
+    ralphLoopRunning: v.boolean(),
+    ralphLoopCurrentTask: v.optional(v.number()),
+    ralphLoopTotalTasks: v.optional(v.number()),
+    ralphLoopProject: v.optional(v.string()),
+    lastUpdated: v.number(),
+  }),
 });

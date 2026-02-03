@@ -4,12 +4,12 @@ import { useState, useEffect } from 'react';
 
 interface HeaderProps {
   projectName: string;
-  agentsActive: number;
-  tasksInQueue: number;
-  isOnline: boolean;
+  nashStatus: 'online' | 'busy' | 'offline';
+  activeTasks: number;
+  pendingTasks: number;
 }
 
-export function Header({ projectName, agentsActive, tasksInQueue, isOnline }: HeaderProps) {
+export function Header({ projectName, nashStatus, activeTasks, pendingTasks }: HeaderProps) {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
@@ -34,6 +34,14 @@ export function Header({ projectName, agentsActive, tasksInQueue, isOnline }: He
     }).toUpperCase();
   };
 
+  const statusConfig = {
+    online: { color: 'bg-emerald-500', label: 'Online' },
+    busy: { color: 'bg-amber-500', label: 'Working' },
+    offline: { color: 'bg-stone-300', label: 'Offline' },
+  };
+
+  const s = statusConfig[nashStatus];
+
   return (
     <header className="flex items-center justify-between px-6 py-4 border-b border-stone-200 bg-white">
       {/* Left: Logo & Project */}
@@ -50,32 +58,27 @@ export function Header({ projectName, agentsActive, tasksInQueue, isOnline }: He
       {/* Center: Stats */}
       <div className="flex items-center gap-12">
         <div className="text-center">
-          <div className="text-3xl font-light text-stone-900">{agentsActive}</div>
-          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Agents Active</div>
+          <div className="flex items-center justify-center gap-2">
+            <span className={`w-3 h-3 rounded-full ${s.color}`} />
+            <span className="text-xl font-light text-stone-900">{s.label}</span>
+          </div>
+          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Nash</div>
         </div>
         <div className="text-center">
-          <div className="text-3xl font-light text-stone-900">{tasksInQueue}</div>
-          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Tasks in Queue</div>
+          <div className="text-3xl font-light text-stone-900">{activeTasks}</div>
+          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Active</div>
+        </div>
+        <div className="text-center">
+          <div className="text-3xl font-light text-stone-900">{pendingTasks}</div>
+          <div className="text-[10px] tracking-widest text-stone-400 uppercase">Pending</div>
         </div>
       </div>
 
-      {/* Right: Time & Status */}
+      {/* Right: Time */}
       <div className="flex items-center gap-6">
-        <button className="flex items-center gap-2 px-3 py-1.5 text-sm text-stone-600 border border-stone-200 rounded hover:bg-stone-50">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          Docs
-        </button>
         <div className="text-right">
           <div className="text-xl font-light tracking-wider text-stone-900">{formatTime(time)}</div>
           <div className="text-[10px] tracking-wider text-stone-400">{formatDate(time)}</div>
-        </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${
-          isOnline ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'
-        }`}>
-          <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
-          {isOnline ? 'ONLINE' : 'OFFLINE'}
         </div>
       </div>
     </header>

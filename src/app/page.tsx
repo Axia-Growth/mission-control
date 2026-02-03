@@ -4,10 +4,9 @@ import { useState } from 'react';
 import { useQuery, useMutation, api } from '@/lib/convex';
 import { Id } from '../../convex/_generated/dataModel';
 import { Header } from '@/components/Header';
-import { AgentsPanel } from '@/components/AgentsPanel';
+import { NashStatusPanel } from '@/components/NashStatusPanel';
 import { MissionQueue } from '@/components/MissionQueue';
 import { LiveFeed } from '@/components/LiveFeed';
-import { CommentSection } from '@/components/CommentSection';
 
 // Map Convex types to component types
 type Agent = {
@@ -42,12 +41,33 @@ type Task = {
   _creationTime: number;
 };
 
+type TaskComment = {
+  _id: Id<"taskComments">;
+  taskId: Id<"tasks">;
+  author: string;
+  content: string;
+  _creationTime: number;
+};
+
+type OperatorStatus = {
+  ampFreeRemaining: number;
+  ampFreeTotal: number;
+  ampWorkspaceBalance: number;
+  ralphLoopRunning: boolean;
+  ralphLoopCurrentTask?: number;
+  ralphLoopTotalTasks?: number;
+  ralphLoopProject?: string;
+  lastUpdated: number;
+};
+
 export default function CommandCenter() {
   const agents = useQuery(api.agents.list) as Agent[] | undefined;
   const tasks = useQuery(api.tasks.list, { includeCancelled: false }) as Task[] | undefined;
+  // TODO: Enable once Convex schema is pushed
+  // const operatorStatus = useQuery(api.operatorStatus.get) as OperatorStatus | null | undefined;
+  const operatorStatus: OperatorStatus | null = null; // Placeholder until schema is deployed
   const updateTaskStatus = useMutation(api.tasks.updateStatus);
   
-  const [isOnline, setIsOnline] = useState(true);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Loading state
@@ -62,8 +82,26 @@ export default function CommandCenter() {
     );
   }
 
-  const activeAgents = agents.filter(a => a.status === 'online' || a.status === 'busy').length;
+  // Find Nash agent
+  const nash = agents.find(a => a.name.toLowerCase() === 'nash');
+  const nashStatus = nash?.status || 'offline';
+  
+  // Get current task title if Nash has one
+  const currentTask = nash?.currentTaskId 
+    ? tasks.find(t => t._id === nash.currentTaskId)?.title 
+    : undefined;
+
+  // Count tasks completed today
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tasksCompletedToday = tasks.filter(t => 
+    t.status === 'done' && 
+    t.completedAt && 
+    t.completedAt >= today.getTime()
+  ).length;
+
   const activeTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled').length;
+  const pendingTasks = tasks.filter(t => t.status === 'pending').length;
 
   async function handleTaskStatusChange(taskId: string, status: Task['status']) {
     await updateTaskStatus({ 
@@ -78,15 +116,20 @@ export default function CommandCenter() {
       {/* Header */}
       <Header
         projectName="ML Holdings"
-        agentsActive={activeAgents}
-        tasksInQueue={activeTasks}
-        isOnline={isOnline}
+        nashStatus={nashStatus}
+        activeTasks={activeTasks}
+        pendingTasks={pendingTasks}
       />
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left: Agents Panel */}
-        <AgentsPanel agents={agents} />
+        {/* Left: Nash Status Panel */}
+        <NashStatusPanel 
+          status={nashStatus}
+          currentTask={currentTask}
+          tasksCompletedToday={tasksCompletedToday}
+          operatorStatus={operatorStatus}
+        />
 
         {/* Center: Mission Queue (Kanban) */}
         <MissionQueue
@@ -121,11 +164,26 @@ interface TaskDetailModalProps {
 }
 
 function TaskDetailModal({ task, agents, onClose, onStatusChange }: TaskDetailModalProps) {
+  const comments = useQuery(api.comments.byTask, { taskId: task._id }) as TaskComment[] | undefined;
+  const addComment = useMutation(api.comments.add);
+  const [newComment, setNewComment] = useState('');
+
+  async function handleAddComment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newComment.trim()) return;
+
+    await addComment({
+      taskId: task._id,
+      author: 'mike',
+      content: newComment,
+    });
+
+    setNewComment('');
+  }
+
   const AGENT_ICONS: Record<string, string> = {
     mike: '👤',
     nash: '♟️',
-    dev: '⚡',
-    otto: '📋',
   };
 
   const assignedAgent = agents.find(a => a.name.toLowerCase() === task.assignedTo?.toLowerCase());
@@ -216,7 +274,58 @@ function TaskDetailModal({ task, agents, onClose, onStatusChange }: TaskDetailMo
           )}
 
           {/* Comments */}
-          <CommentSection taskId={task._id} taskTitle={task.title} />
+          <div>
+            <h3 className="text-xs font-semibold text-stone-500 uppercase mb-3">
+              Comments ({comments?.length || 0})
+            </h3>
+            
+            {comments === undefined ? (
+              <div className="text-center py-4">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-amber-600 mx-auto" />
+              </div>
+            ) : comments.length === 0 ? (
+              <p className="text-sm text-stone-400 py-4">No comments yet</p>
+            ) : (
+              <div className="space-y-4 mb-4">
+                {comments.map(comment => {
+                  const icon = AGENT_ICONS[comment.author.toLowerCase()] || '💬';
+                  return (
+                    <div key={comment._id} className="flex gap-3">
+                      <span className="w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center text-sm flex-shrink-0">
+                        {icon}
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-stone-900">{comment.author}</span>
+                          <span className="text-xs text-stone-400">
+                            {new Date(comment._creationTime).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="text-sm text-stone-600 mt-1">{comment.content}</p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Add Comment */}
+            <form onSubmit={handleAddComment} className="flex gap-2">
+              <input
+                type="text"
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="Add a comment..."
+                className="flex-1 px-3 py-2 text-sm border border-stone-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                Send
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </div>
