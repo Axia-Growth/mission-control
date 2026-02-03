@@ -63,9 +63,7 @@ type OperatorStatus = {
 export default function CommandCenter() {
   const agents = useQuery(api.agents.list) as Agent[] | undefined;
   const tasks = useQuery(api.tasks.list, { includeCancelled: false }) as Task[] | undefined;
-  // TODO: Enable once Convex schema is pushed
-  // const operatorStatus = useQuery(api.operatorStatus.get) as OperatorStatus | null | undefined;
-  const operatorStatus: OperatorStatus | null = null; // Placeholder until schema is deployed
+  const operatorStatus = useQuery(api.operatorStatus.get) as OperatorStatus | null | undefined;
   const updateTaskStatus = useMutation(api.tasks.updateStatus);
   
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);

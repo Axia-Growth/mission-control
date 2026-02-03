@@ -12,6 +12,7 @@ import type * as activity from "../activity.js";
 import type * as agents from "../agents.js";
 import type * as comments from "../comments.js";
 import type * as costs from "../costs.js";
+import type * as operatorStatus from "../operatorStatus.js";
 import type * as seed from "../seed.js";
 import type * as tasks from "../tasks.js";
 
@@ -26,6 +27,7 @@ declare const fullApi: ApiFromModules<{
   agents: typeof agents;
   comments: typeof comments;
   costs: typeof costs;
+  operatorStatus: typeof operatorStatus;
   seed: typeof seed;
   tasks: typeof tasks;
 }>;
